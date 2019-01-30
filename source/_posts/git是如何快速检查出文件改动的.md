@@ -23,3 +23,6 @@ git是通过文件的修改时间判断吗？毕竟时间相同应该不会改�
 经过一番搜索，找到了一些线索：[stackoverflow](https://stackoverflow.com/questions/4075528/what-algorithm-does-git-use-to-detect-changes-on-your-working-tree/4075667)，[git-update-index](https://mirrors.edge.kernel.org/pub/software/scm/git/docs/git-update-index.html#_using_8220_assume_unchanged_8221_bit)。
 
 大致意思是：git充分利用了系统调用lstat，index中记录了文件的lstat结果，文件大小、修改时间、inode等，在git status时，先通过文件的lstat结果与index中的比较，如果相同那么不用进一步处理就当做相同；对于那些不同的，再进一步通过内容sha-1比较是否相同来最终判别是否改动。
+
+### 延伸问题
+按上面的思路，git通过循环比较工作区的每个文件与index来判断出修改，那么它是如何知道哪个文件被删除了呢？在还没找到确定资料前大胆猜测一下，git在用工作区文件与index比较的过程中，对index中每个被比较过的entry做个标记，循环结束后如果还有entry没有被标记，就说明其在工作区被删除了。
