@@ -41,3 +41,5 @@ Java 8之前的版本就有匿名类，没法在匿名类中引用任何非final
 ```
 
 循环中声明一个effectively final的变量，lambda就能捕获到了。
+
+如果你对第一个例子的effectively final仍有疑问，参考这个[文档](http://www.importnew.com/20198.html)
