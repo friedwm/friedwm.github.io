@@ -81,3 +81,5 @@ deploy:
   type: git
   repo: git@github.com:friedwm/friedwm.github.io.git
   branch: master
+
+disqus_shortname: quxiao-xyz
