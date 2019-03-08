@@ -82,4 +82,7 @@ deploy:
   repo: git@github.com:friedwm/friedwm.github.io.git
   branch: master
 
-disqus_shortname: quxiao-xyz
+disqus:
+  enable: true
+  shortname: quxiao-xyz
+  count: true 
