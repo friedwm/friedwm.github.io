@@ -5,7 +5,7 @@
 # Site
 title: quxiao's blog
 subtitle:
-description: "学习、思考、成长"
+description: "学习、思考、记录"
 keywords:
 author: quxiao
 language:
@@ -35,7 +35,7 @@ titlecase: false # Transform title into titlecase
 external_link: true # Open external links in new tab
 filename_case: 0
 render_drafts: false
-post_asset_folder: false
+post_asset_folder: true
 relative_link: false
 future: true
 highlight:
@@ -81,8 +81,3 @@ deploy:
   type: git
   repo: git@github.com:friedwm/friedwm.github.io.git
   branch: master
-
-disqus:
-  enable: true
-  shortname: quxiao-xyz
-  count: true
