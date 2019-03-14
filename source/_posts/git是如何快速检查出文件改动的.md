@@ -1,7 +1,10 @@
 ---
 title: git是如何快速检查出文件改动的
 date: 2019-01-30 23:21:06
-tags: git
+categories:
+- git
+tags:
+- git status
 ---
 
 ### 问题的来源

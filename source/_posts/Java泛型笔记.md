@@ -1,7 +1,11 @@
 ---
 title: Java泛型笔记
 date: 2019-03-13 15:47:15
+categories:
+- java
 tags:
+- java
+- 泛型
 ---
 
 ### Java泛型思维导图

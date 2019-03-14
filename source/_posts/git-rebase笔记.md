@@ -1,7 +1,11 @@
 ---
 title: git rebase笔记
 date: 2019-02-07 19:03:05
+categories: 
+- git
 tags:
+- git
+- rebase
 ---
 
 ### 一句话
