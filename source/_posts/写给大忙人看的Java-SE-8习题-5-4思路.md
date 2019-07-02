@@ -76,3 +76,5 @@ public class ex4_1 {
   }
 }
 ```
+
+PS: 可以用JDK自带的IntStream.range()/rangeClosed()代替Repeater
