@@ -7,13 +7,13 @@ tags: Spring
 
 ## 前言
 
-Spring是进行Java开发时绕不开的一个常见框架，平时工作中只用到其一小部分功能，只知其用法而不知所以然，对于一款架构优秀的框架来说，不去了解其原理未免太可惜。所以从本文开始，我将尝试从源代码层面一探究竟。
+经过十几年的发展Spring已经从一个单一的Bean容器框架，演化成了覆盖开发方方面面的框架族，从单机开发到云、微服务，各项功能纷繁复杂，但最核心还是IOC和AOP。本系列文章将分析Spring的IOC和AOP功能及其实现。
 
-{% asset_img spring5.png Spring5结构图 %}
+{% asset_img Spring5.png Spring5结构图 %}
 
 ## 容器初始化
 
-容器初始化入口在 **AbstractApplicationContext.refresh()**，主要逻辑如下：
+容器初始化入口在 **AbstractApplicationContext.refresh()**，代码如下：
 
 ```java
     @Override
@@ -57,14 +57,90 @@ Spring是进行Java开发时绕不开的一个常见框架，平时工作中只�
     }
 ```
 
-这是典型的*模板方法*设计模式，上层抽象类中定义基本步骤，下层实现类实现具体逻辑。
+以上所有方法均由protected修饰，这是典型的*模板方法*设计模式，父类定义基本步骤和默认实现，子类实现特殊逻辑。
 
-Spring先后出现了XML based、（过渡的Annotation Based）、Java Config based两种配置方式。典型的类结构如下：
+Spring先后出现了XML based、Java Config based两种配置方式。典型的类结构如下：
 {% asset_img ClasspathXmlApplicationContext.png XML式 %}
 {% asset_img AnnotationConfigApplicationContext.png Java Config式 %}
 
-通过对比层次结构可以发现：在AbstractApplicationContext及以上结构完全相同，下方的结构区别如下：
-1. refreshBeanFactory()不同
+通过对比类层次结构可以发现：两个类都继承自AbstractApplicationContext，这意味着主体的refresh()步骤一致的；XML容器继承了AbstractRefreshableApplicationContext，从名字也能猜到这是支持刷新的容器，而注解容器没有继承，推断其不具备重复刷新的功能。
+下面逐个查看refresh()中的调用：
+
+1. prepareRefresh()
+刷新前的准备工作，设置启动、关闭标志位，**初始化PropertySource**，校验属性中的Required。
+
+```java
+/**
+	 * Prepare this context for refreshing, setting its startup date and
+	 * active flag as well as performing any initialization of property sources.
+	 */
+	protected void prepareRefresh() {
+		// Switch to active.
+		this.startupDate = System.currentTimeMillis();
+		this.closed.set(false);
+		this.active.set(true);
+
+		if (logger.isDebugEnabled()) {
+			if (logger.isTraceEnabled()) {
+				logger.trace("Refreshing " + this);
+			}
+			else {
+				logger.debug("Refreshing " + getDisplayName());
+			}
+		}
+
+		// Initialize any placeholder property sources in the context environment.
+		initPropertySources();
+
+		// Validate that all properties marked as required are resolvable:
+		// see ConfigurablePropertyResolver#setRequiredProperties
+		getEnvironment().validateRequiredProperties();
+
+		// Store pre-refresh ApplicationListeners...
+		if (this.earlyApplicationListeners == null) {
+			this.earlyApplicationListeners = new LinkedHashSet<>(this.applicationListeners);
+		}
+		else {
+			// Reset local application listeners to pre-refresh state.
+			this.applicationListeners.clear();
+			this.applicationListeners.addAll(this.earlyApplicationListeners);
+		}
+
+		// Allow for the collection of early ApplicationEvents,
+		// to be published once the multicaster is available...
+		this.earlyApplicationEvents = new LinkedHashSet<>();
+	}
+```
+
+1.1 initPropertySources()
+默认实现是空，几个子类实现大同小异，创建一个Environment，调用初始化方法。
+
+*AbstractRefreshableWebApplicationContext*
+
+```java
+@Override
+	protected void initPropertySources() {
+		ConfigurableEnvironment env = getEnvironment();
+		if (env instanceof ConfigurableWebEnvironment) {
+			((ConfigurableWebEnvironment) env).initPropertySources(this.servletContext, this.servletConfig);
+		}
+	}
+```
+
+*GenericWebApplicationContext*
+
+```java
+@Override
+	protected void initPropertySources() {
+		ConfigurableEnvironment env = getEnvironment();
+		if (env instanceof ConfigurableWebEnvironment) {
+			((ConfigurableWebEnvironment) env).initPropertySources(this.servletContext, null);
+		}
+	}
+```
+
+
+2. refreshBeanFactory()不同
 
 **XML based:**
 
@@ -112,3 +188,5 @@ Spring先后出现了XML based、（过渡的Annotation Based）、Java Config b
 		this.beanFactory.setSerializationId(getId());
 	}
 ```
+
+启示：基于XML的容器在refreshBeanFactory()中关闭已有的内部容器并获取一个的，重新加载BeanDefinition；而基于注解的容器则不允许重复刷新。
