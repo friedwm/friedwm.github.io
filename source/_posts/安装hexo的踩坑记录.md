@@ -1,7 +1,7 @@
 ---
 title: 安装hexo的踩坑记录
 date: 2019-01-26T04:41:46.411Z
-tags:
+tags: hexo
 comment: on
 ---
 
@@ -34,3 +34,16 @@ $ wget -qO- https://raw.github.com/creationix/nvm/v0.33.11/install.sh | sh
 
 ===================
 update: 又装了一次，家里电信下载node慢到抓狂，在安装程序前在shell里运行  `export https_proxy=http://127.0.0.1:1080` 让https流量走代理，终于快起来了。。。
+
+===================
+update: 关于主题，参考教程使用git submodule，fork了一份到自己仓库，然后在博客根目录添加主题仓库地址为submodule。重建博客目录时在根目录运行:
+
+```
+git submodule init
+git submodule update
+```
+
+要跟踪上游的主题更新，只需要在github中 new pull request，比较自己仓库分支和上游仓库master分支，然后直接新建并同意即可合并更新。
+
+[参考资料1](https://lrscy.github.io/2018/01/26/Hexo-Github-Backup/)
+[参考资料2](https://juejin.im/post/5c2e22fcf265da615d72c596)
