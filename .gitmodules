@@ -1,3 +1,4 @@
 [submodule "themes/next"]
 	path = themes/next
 	url = git@github.com:friedwm/hexo-theme-next.git
+	branch = blog
