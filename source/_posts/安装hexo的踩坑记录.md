@@ -31,3 +31,6 @@ $ wget -qO- https://raw.github.com/creationix/nvm/v0.33.11/install.sh | sh
 保存重开WSL，果然 npm, hexo都可用了。
 
 总结：Linux环境配置文件众多，/etc/profile，~/.profile，~/.bashrc等等，根据选用的shell不同，加载的配置也不用，多种配置文件有层级优先级的特点，当出现命令找不到时要想到这一点。
+
+===================
+update: 又装了一次，家里电信下载node慢到抓狂，在安装程序前在shell里运行  `export https_proxy=http://127.0.0.1:1080` 让https流量走代理，终于快起来了。。。
