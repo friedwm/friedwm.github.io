@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+
+
+
+
+
+<html lang="zh-CN,en,default">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 3.9.0">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png?v=7.4.1">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png?v=7.4.1">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png?v=7.4.1">
+  <link rel="mask-icon" href="/images/logo.svg?v=7.4.1" color="#222">
+
+<link rel="stylesheet" href="/css/main.css?v=7.4.1">
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/font-awesome.min.css?v=4.7.0">
+
+
+<script id="hexo-configurations">
+  var NexT = window.NexT || {};
+  var CONFIG = {
+    root: '/',
+    scheme: 'Muse',
+    version: '7.4.1',
+    exturl: false,
+    sidebar: {"position":"left","display":"post","offset":12,"onmobile":false},
+    copycode: {"enable":true,"show_result":true,"style":null},
+    back2top: {"enable":true,"sidebar":false,"scrollpercent":false},
+    bookmark: {"enable":false,"color":"#222","save":"auto"},
+    fancybox: false,
+    mediumzoom: false,
+    lazyload: false,
+    pangu: false,
+    algolia: {
+      appID: '',
+      apiKey: '',
+      indexName: '',
+      hits: {"per_page":10},
+      labels: {"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}
+    },
+    localsearch: {"enable":false,"trigger":"auto","top_n_per_article":1,"unescape":false,"preload":false},
+    path: '',
+    motion: {"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}},
+    translation: {
+      copy_button: '复制',
+      copy_success: '复制成功',
+      copy_failure: '复制失败'
+    },
+    sidebarPadding: 40
+  };
+</script>
+
+  <meta name="description" content="问题的来源git status可以说是最常使用的git命令，它不仅可以列出工作区的变动，如果你忘记怎么添加文件到index、想恢复工作区的改动也可以运行一下git status看看提示。运行git status总是能很快返回变动的文件，它是如何做到这一点的？ 监听操作系统通知？我带着这个疑问请教了一个同事，他给出的答案是git会利用操作系统监听文件改动，这样git显然可以毫不费力获知文件，听起来很">
+<meta name="keywords" content="git status">
+<meta property="og:type" content="article">
+<meta property="og:title" content="git是如何快速检查出文件改动的">
+<meta property="og:url" content="http://quxiao.xyz/2019/01/30/git是如何快速检查出文件改动的/index.html">
+<meta property="og:site_name" content="quxiao&#39;s blog">
+<meta property="og:description" content="问题的来源git status可以说是最常使用的git命令，它不仅可以列出工作区的变动，如果你忘记怎么添加文件到index、想恢复工作区的改动也可以运行一下git status看看提示。运行git status总是能很快返回变动的文件，它是如何做到这一点的？ 监听操作系统通知？我带着这个疑问请教了一个同事，他给出的答案是git会利用操作系统监听文件改动，这样git显然可以毫不费力获知文件，听起来很">
+<meta property="og:locale" content="zh-CN">
+<meta property="og:updated_time" content="2019-10-13T07:51:44.785Z">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="git是如何快速检查出文件改动的">
+<meta name="twitter:description" content="问题的来源git status可以说是最常使用的git命令，它不仅可以列出工作区的变动，如果你忘记怎么添加文件到index、想恢复工作区的改动也可以运行一下git status看看提示。运行git status总是能很快返回变动的文件，它是如何做到这一点的？ 监听操作系统通知？我带着这个疑问请教了一个同事，他给出的答案是git会利用操作系统监听文件改动，这样git显然可以毫不费力获知文件，听起来很">
+  <link rel="canonical" href="http://quxiao.xyz/2019/01/30/git是如何快速检查出文件改动的/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome: false,
+    isPost: true,
+    isPage: false,
+    isArchive: false
+  };
+</script>
+
+  <title>git是如何快速检查出文件改动的 | quxiao's blog</title>
+  
+
+
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container use-motion">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-meta">
+
+    <div>
+      <a href="/" class="brand" rel="start">
+        <span class="logo-line-before"><i></i></span>
+        <span class="site-title">quxiao's blog</span>
+        <span class="logo-line-after"><i></i></span>
+      </a>
+    </div>
+  </div>
+
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+</div>
+
+
+<nav class="site-nav">
+  
+  <ul id="menu" class="menu">
+      
+      
+        
+        
+        <li class="menu-item menu-item-home">
+      
+    
+
+    <a href="/" rel="section"><i class="fa fa-fw fa-home"></i>首页</a>
+
+  </li>
+      
+    
+      
+      
+        
+        
+        <li class="menu-item menu-item-archives">
+      
+    
+
+    <a href="/archives/" rel="section"><i class="fa fa-fw fa-archive"></i>归档</a>
+
+  </li>
+      
+    
+  </ul>
+
+    
+
+</nav>
+</div>
+    </header>
+
+    
+  <div class="back-to-top">
+    <i class="fa fa-arrow-up"></i>
+    <span>0%</span>
+  </div>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          <div class="content">
+            
+
+  <div class="posts-expand">
+      
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block " lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="http://quxiao.xyz/2019/01/30/git是如何快速检查出文件改动的/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="quxiao">
+      <meta itemprop="description" content="学习、思考、记录">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="quxiao's blog">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          
+            git是如何快速检查出文件改动的
+            
+
+          
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              
+                
+              
+
+              <time title="创建时间：2019-01-30 23:21:06" itemprop="dateCreated datePublished" datetime="2019-01-30T23:21:06+08:00">2019-01-30</time>
+            </span>
+          
+            
+
+            
+              <span class="post-meta-item">
+                <span class="post-meta-item-icon">
+                  <i class="fa fa-calendar-check-o"></i>
+                </span>
+                <span class="post-meta-item-text">更新于</span>
+                <time title="修改时间：2019-10-13 15:51:44" itemprop="dateModified" datetime="2019-10-13T15:51:44+08:00">2019-10-13</time>
+              </span>
+            
+          
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/git/" itemprop="url" rel="index">
+                    <span itemprop="name">git</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+  
+  <span class="post-meta-item">
+    
+      <span class="post-meta-item-icon">
+        <i class="fa fa-comment-o"></i>
+      </span>
+        
+      
+      <span class="post-meta-item-text">Disqus：</span>
+    
+    <a title="disqus" href="/2019/01/30/git是如何快速检查出文件改动的/#comments" itemprop="discussionUrl">
+      <span class="post-comments-count disqus-comment-count" data-disqus-identifier="2019/01/30/git是如何快速检查出文件改动的/" itemprop="commentCount"></span>
+    </a>
+  </span>
+  
+  
+          <br>
+            <span class="post-meta-item" title="本文字数">
+              <span class="post-meta-item-icon">
+                <i class="fa fa-file-word-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">本文字数：</span>
+              
+              <span>979</span>
+            </span>
+          
+            <span class="post-meta-item" title="阅读时长">
+              <span class="post-meta-item-icon">
+                <i class="fa fa-clock-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">阅读时长 &asymp;</span>
+              
+              <span>1 分钟</span>
+            </span>
+          
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <h3 id="问题的来源"><a href="#问题的来源" class="headerlink" title="问题的来源"></a>问题的来源</h3><p><code>git status</code>可以说是最常使用的git命令，它不仅可以列出工作区的变动，如果你忘记怎么添加文件到index、想恢复工作区的改动也可以运行一下git status看看提示。<br>运行git status总是能很快返回变动的文件，它是如何做到这一点的？</p>
+<h3 id="监听操作系统通知？"><a href="#监听操作系统通知？" class="headerlink" title="监听操作系统通知？"></a>监听操作系统通知？</h3><p>我带着这个疑问请教了一个同事，他给出的答案是git会利用操作系统监听文件改动，这样git显然可以毫不费力获知文件，听起来很有道理。但接着我做了一个实验：先修改工作区但不提交，假设git通过操作系统获知有文件改动了，好没问题，接着把这个项目目录整个剪切到其他地方，这样的话所有文件都变动了，再运行git status发现还是能立即显示出改动的那个文件。而且git至少得先向操作系统注册回调才能收到通知吧，但实际只是在修改完成后运行了一次git status即可看到改动，所以基本可以排除回调这种机制，只剩下一种可能，git是在运行命令时，实时比较工作区与index的差别从而得到改动的文件。</p>
+<h3 id="修改时间"><a href="#修改时间" class="headerlink" title="修改时间?"></a>修改时间?</h3><p>git是通过文件的修改时间判断吗？毕竟时间相同应该不会改动，但是这还不够，因为系统时间是可改的，意味着只用这个时间不可靠。</p>
+<h3 id="sha-1"><a href="#sha-1" class="headerlink" title="sha-1?"></a>sha-1?</h3><p>了解一点git原理的都知道，原文件被编码成二进制格式文件存入<code>.git/objects</code>，文件名是内容的<em>sha-1</em>值，那么在<code>git status</code>时，git是不是把所有文件hash一遍与index中记录进行比较呢？应该能行，但是效率太低了。</p>
+<h3 id="真相"><a href="#真相" class="headerlink" title="真相"></a>真相</h3><p>经过一番搜索，找到了一些线索：<a href="https://stackoverflow.com/questions/4075528/what-algorithm-does-git-use-to-detect-changes-on-your-working-tree/4075667" target="_blank" rel="noopener">stackoverflow</a>，<a href="https://mirrors.edge.kernel.org/pub/software/scm/git/docs/git-update-index.html#_using_8220_assume_unchanged_8221_bit" target="_blank" rel="noopener">git-update-index</a>。</p>
+<p>大致意思是：git充分利用了系统调用lstat，index中记录了文件的lstat结果，文件大小、修改时间、inode等，在git status时，先通过文件的lstat结果与index中的比较，如果相同那么不用进一步处理就当做相同；对于那些不同的，再进一步通过内容sha-1比较是否相同来最终判别是否改动。</p>
+<h3 id="延伸问题"><a href="#延伸问题" class="headerlink" title="延伸问题"></a>延伸问题</h3><p>按上面的思路，git通过循环比较工作区的每个文件与index来判断出修改，那么它是如何知道哪个文件被删除了呢？在还没找到确定资料前大胆猜测一下，git在用工作区文件与index比较的过程中，对index中每个被比较过的entry做个标记，循环结束后如果还有entry没有被标记，就说明其在工作区被删除了。</p>
+
+    </div>
+
+    
+    
+    
+        
+      
+
+      <footer class="post-footer">
+          
+            
+          
+          <div class="post-tags">
+            
+              <a href="/tags/git-status/" rel="tag"># git status</a>
+            
+          </div>
+        
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-next post-nav-item">
+              
+                <a href="/2019/01/26/安装hexo的踩坑记录/" rel="next" title="安装hexo的踩坑记录">
+                  <i class="fa fa-chevron-left"></i> 安装hexo的踩坑记录
+                </a>
+              
+            </div>
+
+            <span class="post-nav-divider"></span>
+
+            <div class="post-nav-prev post-nav-item">
+              
+                <a href="/2019/02/07/git-rebase笔记/" rel="prev" title="git rebase笔记">
+                  git rebase笔记 <i class="fa fa-chevron-right"></i>
+                </a>
+              
+            </div>
+          </div>
+        
+      </footer>
+    
+  </article>
+  
+  
+  
+
+  </div>
+
+
+          </div>
+          
+    
+    
+  <div class="comments" id="comments">
+    <div id="disqus_thread">
+      <noscript>Please enable JavaScript to view the comments powered by Disqus.</noscript>
+    </div>
+  </div>
+  
+  
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+        
+        
+        
+        
+      
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-3"><a class="nav-link" href="#问题的来源"><span class="nav-number">1.</span> <span class="nav-text">问题的来源</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#监听操作系统通知？"><span class="nav-number">2.</span> <span class="nav-text">监听操作系统通知？</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#修改时间"><span class="nav-number">3.</span> <span class="nav-text">修改时间?</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#sha-1"><span class="nav-number">4.</span> <span class="nav-text">sha-1?</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#真相"><span class="nav-number">5.</span> <span class="nav-text">真相</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#延伸问题"><span class="nav-number">6.</span> <span class="nav-text">延伸问题</span></a></li></ol></div>
+        
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">quxiao</p>
+  <div class="site-description" itemprop="description">学习、思考、记录</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        
+          <a href="/archives/">
+        
+          <span class="site-state-item-count">14</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+    
+      
+      
+      <div class="site-state-item site-state-categories">
+        
+          
+            <a href="/categories/">
+          
+        
+        <span class="site-state-item-count">3</span>
+        <span class="site-state-item-name">分类</span>
+        </a>
+      </div>
+    
+      
+      
+      <div class="site-state-item site-state-tags">
+        
+          
+            <a href="/tags/">
+          
+        
+        <span class="site-state-item-count">11</span>
+        <span class="site-state-item-name">标签</span>
+        </a>
+      </div>
+    
+  </nav>
+</div>
+
+
+
+      </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+<div class="copyright">
+  &copy; 
+  <span itemprop="copyrightYear">2019</span>
+  <span class="with-love">
+    <i class="fa fa-user"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">quxiao</span>
+    <span class="post-meta-divider">|</span>
+    <span class="post-meta-item-icon">
+      <i class="fa fa-area-chart"></i>
+    </span>
+      <span class="post-meta-item-text">站点总字数：</span>
+    
+    <span title="站点总字数">15k</span>
+    <span class="post-meta-divider">|</span>
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+      <span class="post-meta-item-text">站点阅读时长 &asymp;</span>
+    
+    <span title="站点阅读时长">14 分钟</span>
+</div>
+  <div class="powered-by">由 <a href="https://hexo.io" class="theme-link" rel="noopener" target="_blank">Hexo</a> 强力驱动 v3.9.0
+  </div>
+  <span class="post-meta-divider">|</span>
+  <div class="theme-info">
+      
+    主题 – <a href="https://muse.theme-next.org" class="theme-link" rel="noopener" target="_blank">NexT.Muse</a> v7.4.1
+  </div>
+
+
+  <script src='https://unpkg.com/mermaid@/dist/mermaid.min.js'></script>
+  <script>
+    if (window.mermaid) {
+      mermaid.initialize("");
+    }
+  </script>
+
+
+        
+
+
+
+
+
+
+
+
+
+
+
+
+        
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js?v=3.1.0"></script>
+  <script src="/lib/velocity/velocity.min.js?v=1.2.1"></script>
+  <script src="/lib/velocity/velocity.ui.min.js?v=1.2.1"></script>
+<script src="/js/utils.js?v=7.4.1"></script><script src="/js/motion.js?v=7.4.1"></script>
+<script src="/js/schemes/muse.js?v=7.4.1"></script>
+<script src="/js/next-boot.js?v=7.4.1"></script>
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<script>
+if (document.querySelectorAll('pre.mermaid').length) {
+  NexT.utils.getScript('//cdn.jsdelivr.net/npm/mermaid@8/dist/mermaid.min.js', () => {
+    mermaid.initialize({
+      theme: 'forest',
+      logLevel: 3,
+      flowchart: { curve: 'linear' },
+      gantt: { axisFormat: '%m/%d/%Y' },
+      sequence: { actorMargin: 50 }
+    });
+  }, window.mermaid);
+}
+</script>
+
+
+
+
+  
+
+  
+
+  
+
+<script>
+  function loadCount() {
+    var d = document, s = d.createElement('script');
+    s.src = 'https://quxiao-xyz.disqus.com/count.js';
+    s.id = 'dsq-count-scr';
+    (d.head || d.body).appendChild(s);
+  }
+  // defer loading until the whole page loading is completed
+  window.addEventListener('load', loadCount, false);
+</script>
+<script>
+  function disqus_config() {
+    this.page.url = "http://quxiao.xyz/2019/01/30/git是如何快速检查出文件改动的/";
+    this.page.identifier = "2019/01/30/git是如何快速检查出文件改动的/";
+    this.page.title = 'git是如何快速检查出文件改动的';
+  }
+  function loadComments() {
+    if (window.DISQUS) {
+      DISQUS.reset({
+        reload: true,
+        config: disqus_config
+      });
+    } else {
+      var d = document, s = d.createElement('script');
+      s.src = 'https://quxiao-xyz.disqus.com/embed.js';
+      s.setAttribute('data-timestamp', '' + +new Date());
+      (d.head || d.body).appendChild(s);
+    }
+  }
+    window.addEventListener('load', loadComments, false);
+  
+</script>
+
+</body>
+</html>
