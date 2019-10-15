@@ -16,4 +16,35 @@ Environment接口是Spring对Profile和Property两个方面的抽象，主要处
     Property就是键值对，来源很多：属性文件、JVM系统属性、系统环境变量、JNDI、servlet context参数、Maps等。Environment通过继承*PropertyResolver*获得Property相关操作（获取Property、解析占位符）
 
 # 实现
-目前有两个实现类，StandardEnvironment和StandardWebEnvironment，后者直接继承前者并增加了initPropertySource(ServletContext, ServletConfig)，是把ServletContext和ServletConfig作为PropertySource。Env的主要逻辑在基类AbstractEnvironment中：对Property的解析是委托给内部的PropertyResolver来完成的，数据来源是AbsEnv持有的MutablePropertySources对象；Active Profile可以通过从PropertySource中查找key: spring.profiles.active得到。
+目前有两个实现类，StandardEnvironment和StandardWebEnvironment，后者直接继承前者并增加了initPropertySource(ServletContext, ServletConfig)，是把ServletContext和ServletConfig作为PropertySource。Env的主要逻辑在基类AbstractEnvironment中：其代码主要处理Profile相关，而对Property的解析是委托给内部的PropertyResolver来完成的：Property来源是AbsEnv持有的MutablePropertySources对象。
+
+## 解析property
+解析Property的实现类是PropertySourcesPropertyResolver，主要分为两步：获取string形式的解析值，调用ConversionService转换到指定类型。
+
+```java
+@Nullable
+	protected <T> T getProperty(String key, Class<T> targetValueType, boolean resolveNestedPlaceholders) {
+		if (this.propertySources != null) {
+            // 依次遍历PropertySources，返回第一个找到的值
+			for (PropertySource<?> propertySource : this.propertySources) {
+				if (logger.isTraceEnabled()) {
+					logger.trace("Searching for key '" + key + "' in PropertySource '" +
+							propertySource.getName() + "'");
+				}
+				Object value = propertySource.getProperty(key);
+				if (value != null) {
+					if (resolveNestedPlaceholders && value instanceof String) {
+						value = resolveNestedPlaceholders((String) value);
+					}
+					logKeyFound(key, propertySource, value);
+                    // 转换到指定类型
+					return convertValueIfNecessary(value, targetValueType);
+				}
+			}
+		}
+		if (logger.isTraceEnabled()) {
+			logger.trace("Could not find key '" + key + "' in any property source");
+		}
+		return null;
+	}
+```
