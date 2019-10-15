@@ -2,6 +2,13 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   
   <url>
+    <loc>http://quxiao.xyz/2019/10/12/Spring%E6%BA%90%E7%A0%81%E9%98%85%E8%AF%BB%E4%B9%8BEnvironment/</loc>
+    
+    <lastmod>2019-10-15T13:33:11.889Z</lastmod>
+    
+  </url>
+  
+  <url>
     <loc>http://quxiao.xyz/tags/index.html</loc>
     
     <lastmod>2019-10-13T07:51:44.802Z</lastmod>
@@ -61,13 +68,6 @@
     <loc>http://quxiao.xyz/2019/02/07/git-rebase%E7%AC%94%E8%AE%B0/</loc>
     
     <lastmod>2019-10-13T07:51:44.782Z</lastmod>
-    
-  </url>
-  
-  <url>
-    <loc>http://quxiao.xyz/2019/10/12/Spring%E6%BA%90%E7%A0%81%E9%98%85%E8%AF%BB%E4%B9%8BEnvironment/</loc>
-    
-    <lastmod>2019-10-13T07:51:44.779Z</lastmod>
     
   </url>
   
