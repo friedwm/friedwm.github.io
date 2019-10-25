@@ -10,13 +10,35 @@ tags:
 
 ## Spring中的四类注解
 Spring中的注解主要分类4类：
-    1. 用于标识组件的：@Component（根据用途的不同利用[元注解][1]能力，派生出: @Controller, @Service, @Repository, @Configuration, @ControllerAdvice）
+    1. 用于标识组件的：@Component系列（根据用途的不同派生出: @Controller, @Service, @Repository, @Configuration, @ControllerAdvice）
     2. 用于Java Config的：@ComponentScan, @Profile, @Import, @ImportResource, @PropertySource @Bean, @Lazy, @Scope, @Primary等
     3. 用于启动特定类型功能的：@EnableXXX
     4. 用于表示依赖关系的：@Autowired, @Qualifier
 
-### 标识组件的 @Component
-扫描组件(BeanDefinition)发生在容器启动早期
+### @Component系列
+除了基本的@Component，其余的注解都有特定含义：
+
+- @Controller用来标注在mvc的控制器上
+- @Service放置在service上
+- @Repository放置在数据访问对象上(DAO)
+- @ControllerAdvice放置在控制器横截处理器类上
+- @Configuration比较特殊，用来标记配置类
+
+以上注解都使用了java的[元注解][1]功能，即注解上的注解，例如：
+{%asset_img AtService.png @Service的定义%}
+元注解唯一要求是 @Target必须配置成：ElementType.TYPE或ElementType.ANNOTATION_TYPE。特别需要注意的是，不论是注解还是元注解自身都不会直接改变程序运行流程，他们都只是一个标记，必须配合相应处理代码才能发挥作用。
+
+就@Component系的注解来说，容器启动时利用 ClassPathBeanDefinitionScanner 扫描指定package，将由@Component标注的类识别为Bean。
+{%asset_img ClasspathBeanDefinitionScanner.png %}
+
+// TODO 说明@Component
+
+并且默认注册几个处理注解配置类的处理器，包括：
+
+* ConfigurationClassPostProcessor
+* AutowiredAnnotationBeanPostProcessor
+* CommonAnnotationBeanPostProcessor
+* PersistenceAnnotationBeanPostProcessor(类存在时)
 
 
 ## 解析元数据
