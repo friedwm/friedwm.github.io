@@ -1,5 +1,5 @@
 ---
-title: Spring源码阅读(1) 容器refresh过程
+title: Spring源码阅读(1) 容器refresh
 date: 2019-10-08 14:13:17
 categories: 源码
 tags: Spring
@@ -13,7 +13,7 @@ tags: Spring
 
 ## 容器初始化
 
-容器初始化入口在 **AbstractApplicationContext.refresh()**，代码如下：
+容器初始化入口 **AbstractApplicationContext.refresh()**，代码如下：
 
 ```java
     @Override
@@ -22,7 +22,7 @@ tags: Spring
 			// Prepare this context for refreshing.
 			prepareRefresh();
 
-			// Tell the subclass to refresh the internal bean factory.
+			// 刷新内部BeanFactory
 			ConfigurableListableBeanFactory beanFactory = obtainFreshBeanFactory();
 
 			// Prepare the bean factory for use in this context.
@@ -64,7 +64,7 @@ Spring先后出现了XML based、Java Config based两种配置方式。典型的
 {% asset_img AnnotationConfigApplicationContext.png Java Config式 %}
 
 通过对比类层次结构可以发现：两个类都继承自AbstractApplicationContext，这意味着主体的refresh()步骤一致的；XML容器继承了AbstractRefreshableApplicationContext，从名字也能猜到这是支持刷新的容器，而注解容器没有继承，推断其不具备重复刷新的功能。
-下面逐个查看refresh()中的调用：
+下面查看refresh()中重要的调用：
 
 ### prepareRefresh()
 > 刷新前的准备工作，设置启动、关闭标志位，**初始化PropertySource**，校验属性中的Required。
@@ -594,3 +594,15 @@ protected void finishBeanFactoryInitialization(ConfigurableListableBeanFactory b
 	}
 
 ```
+
+至此，容器初始化完成。
+
+## 总结
+容器初始化大体由以下几步：
+1. 内部BeanFactory准备（包括加载BeanDefinition）
+2. 初始化并调用BeanFactoryPostProcessor
+3. 注册BeanPostProcessor
+4. 初始化各种附加功能Bean（MessageSource, EventMultiCaster等）
+5. 最后初始化non-lazy-init单例。
+
+对于ApplicationContext来说，Bean容器的功能由内部的ListableBeanFactory承担，附加功能则是从容器中查找对应类型的Bean完成配置。常见的功能，比如依赖注入、@Value、AOP功能又是如何实现的呢？To be continued...
