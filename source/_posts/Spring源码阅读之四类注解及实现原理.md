@@ -1,8 +1,8 @@
 ---
-title: Spring源码阅读之四类注解
+title: Spring源码阅读之四类注解及实现原理
 date: 2019-10-24 17:25:02
-categories:
-tags:
+categories: 源码
+tags: Spring
 ---
 
 # 前言
@@ -11,7 +11,7 @@ tags:
 # Spring中的四类注解
 Spring中的注解主要分类4类：
 	1. 用于标识组件的 @Component系列（根据用途的不同派生出: @Controller, @Service, @Repository等）
-	2. 用于Java注解配置的 Annotation Config系列：@ComponentScan, @Profile, @Import, @ImportResource, @PropertySource @Bean, @Lazy, @Scope, @Primary等
+	2. 用于Java注解配置的 Annotation Config系列：@Configuration, @ComponentScan, @Profile, @Import, @ImportResource, @PropertySource @Bean, @Lazy, @Scope, @Primary等
 	3. 用于启动特定类型功能的 @EnableXXX系列 （严格来说也属于第二类注解配置，但其代码实现有所区别）
 	4. 用于注入依赖的：@Autowired, @Qualifier, @Inject, @Resource(后俩为javax标准注解)
 
@@ -374,16 +374,151 @@ AnnotationTypeFilter继承了AbstractTypeHierarchyTraversingFilter，实现了ma
 对注解的匹配委托给MetadataReader完成（可以参考第三部分元数据访问体系），它可以匹配目标类上是否有注解或元注解，再加上已有的匹配父类的能力，所以@Component系可以标记在父类上，子类支持组件自动扫描。
 
 ### scoped-proxy
-扫描出候选BeanDefinition后，Spring通过`AnnotationConfigUtils.applyScopedProxyMode(scopeMetadata, definitionHolder, this.registry);`应用了scoped-proxy，即为指定对象创建一个Proxy，调用Proxy时转发到真实对象上。这个功能主要用在多个不同scope的对象协作的场景，例如某单例对象依赖原型对象，由于单例对象只创建一次，当单例对象创建后，其依赖的原型对象被创建一次后就不再改变，与原型对象的定义不符。通过设置原型对象的scoped-proxy，让单例依赖这个Proxy就可以解决问题。
+扫描出候选BeanDefinition后，Spring通过`AnnotationConfigUtils.applyScopedProxyMode(scopeMetadata, definitionHolder, this.registry);`应用了scoped-proxy(如果启用了scoped-proxy的话)，这个功能主要用在多个不同scope的对象协作的场景，例如某单例对象依赖原型对象，由于单例对象只创建一次，通常来说当单例对象创建后，其依赖的原型对象也只会创建一次，与原型对象的定义不符。通过设置原型对象的scoped-proxy，让单例对象依赖原型对象的Proxy，调用时通过Proxy转发到实际的原型对象就能完美解决问题。
+
+既然是通过Proxy，那么也就存在与Spring AOP着相同的问题，不能代理私有方法，final方法。
 
 **配置**
 
-- 注解式，在类上标@Scope(proxyMode = XXX)
+- 注解式，在类/@Bean方法上标@Scope(proxyMode = XXX)
 - XML
+
+**实现**
+
+通过把原bean改名为 scopedTarget.beanName，用一个ScopedProxyFactoryBean替换了原beanDefinition，ScopedProxyFactoryBean利用了Spring内置的ProxyCreator体系和FactoryBean功能。
+
+```java
+public static BeanDefinitionHolder createScopedProxy(BeanDefinitionHolder definition,
+			BeanDefinitionRegistry registry, boolean proxyTargetClass) {
+
+		String originalBeanName = definition.getBeanName();
+		BeanDefinition targetDefinition = definition.getBeanDefinition();
+		// scopedTarget.原BeanName
+		String targetBeanName = getTargetBeanName(originalBeanName);
+
+		// Create a scoped proxy definition for the original bean name,
+		// "hiding" the target bean in an internal target definition.
+		// 用ScopedProxyFactoryBean替换了原名的BD
+		RootBeanDefinition proxyDefinition = new RootBeanDefinition(ScopedProxyFactoryBean.class);
+		// 记录了被代理的原BD
+		proxyDefinition.setDecoratedDefinition(new BeanDefinitionHolder(targetDefinition, targetBeanName));
+		proxyDefinition.setOriginatingBeanDefinition(targetDefinition);
+		proxyDefinition.setSource(definition.getSource());
+		proxyDefinition.setRole(targetDefinition.getRole());
+
+		// 被代理的原bean的新名字
+		proxyDefinition.getPropertyValues().add("targetBeanName", targetBeanName);
+		if (proxyTargetClass) {
+			targetDefinition.setAttribute(AutoProxyUtils.PRESERVE_TARGET_CLASS_ATTRIBUTE, Boolean.TRUE);
+			// ScopedProxyFactoryBean's "proxyTargetClass" default is TRUE, so we don't need to set it explicitly here.
+		}
+		else {
+			proxyDefinition.getPropertyValues().add("proxyTargetClass", Boolean.FALSE);
+		}
+
+		// Copy autowire settings from original bean definition.
+		proxyDefinition.setAutowireCandidate(targetDefinition.isAutowireCandidate());
+		proxyDefinition.setPrimary(targetDefinition.isPrimary());
+		if (targetDefinition instanceof AbstractBeanDefinition) {
+			proxyDefinition.copyQualifiersFrom((AbstractBeanDefinition) targetDefinition);
+		}
+
+		// The target bean should be ignored in favor of the scoped proxy.
+		targetDefinition.setAutowireCandidate(false);
+		targetDefinition.setPrimary(false);
+
+		// Register the target bean as separate bean in the factory.
+		registry.registerBeanDefinition(targetBeanName, targetDefinition);
+
+		// Return the scoped proxy definition as primary bean definition
+		// (potentially an inner bean).
+		return new BeanDefinitionHolder(proxyDefinition, originalBeanName, definition.getAliases());
+	}
+```
 
 ## Annotation Config系列
 
+优先介绍的是@Configuration，这是注解配置类上的标识开关，实际上它也被@Component元注解标注了，意味着组件扫描时自动识别为Bean。
+
+### 实现原理
+
+将配置类注册到内置容器是第一步，接下来 `ConfigurationClassPostProcessor` 会识别到@Configuration注解的配置类并识别出其中配置的BeanDefinition。
+
+ConfigurationClassPostProcessor是一个 `BeanDefinitionRegistryPostProcessor`
+
+```java
+@Override
+public void postProcessBeanFactory(ConfigurableListableBeanFactory beanFactory) {
+	int factoryId = System.identityHashCode(beanFactory);
+	// 防止重复处理
+	if (this.factoriesPostProcessed.contains(factoryId)) {
+		throw new IllegalStateException(
+				"postProcessBeanFactory already called on this post-processor against " + beanFactory);
+	}
+	this.factoriesPostProcessed.add(factoryId);
+	if (!this.registriesPostProcessed.contains(factoryId)) {
+		// BeanDefinitionRegistryPostProcessor hook apparently not supported...
+		// Simply call processConfigurationClasses lazily at this point then.
+		processConfigBeanDefinitions((BeanDefinitionRegistry) beanFactory);
+	}
+	
+	enhanceConfigurationClasses(beanFactory);
+	beanFactory.addBeanPostProcessor(new ImportAwareBeanPostProcessor(beanFactory));
+}
+
+// 处理容器中的配置类
+public void enhanceConfigurationClasses(ConfigurableListableBeanFactory beanFactory) {
+	Map<String, AbstractBeanDefinition> configBeanDefs = new LinkedHashMap<>();
+	for (String beanName : beanFactory.getBeanDefinitionNames()) {
+		BeanDefinition beanDef = beanFactory.getBeanDefinition(beanName);
+		// 判断是否已经处理过
+		if (ConfigurationClassUtils.isFullConfigurationClass(beanDef)) {
+			if (!(beanDef instanceof AbstractBeanDefinition)) {
+				throw new BeanDefinitionStoreException("Cannot enhance @Configuration bean definition '" +
+						beanName + "' since it is not stored in an AbstractBeanDefinition subclass");
+			}
+			else if (logger.isInfoEnabled() && beanFactory.containsSingleton(beanName)) {
+				logger.info("Cannot enhance @Configuration bean definition '" + beanName +
+						"' since its singleton instance has been created too early. The typical cause " +
+						"is a non-static @Bean method with a BeanDefinitionRegistryPostProcessor " +
+						"return type: Consider declaring such methods as 'static'.");
+			}
+			configBeanDefs.put(beanName, (AbstractBeanDefinition) beanDef);
+		}
+	}
+	if (configBeanDefs.isEmpty()) {
+		// nothing to enhance -> return immediately
+		return;
+	}
+
+	ConfigurationClassEnhancer enhancer = new ConfigurationClassEnhancer();
+	for (Map.Entry<String, AbstractBeanDefinition> entry : configBeanDefs.entrySet()) {
+		AbstractBeanDefinition beanDef = entry.getValue();
+		// If a @Configuration class gets proxied, always proxy the target class
+		beanDef.setAttribute(AutoProxyUtils.PRESERVE_TARGET_CLASS_ATTRIBUTE, Boolean.TRUE);
+		try {
+			// Set enhanced subclass of the user-specified bean class
+			Class<?> configClass = beanDef.resolveBeanClass(this.beanClassLoader);
+			if (configClass != null) {
+				Class<?> enhancedClass = enhancer.enhance(configClass, this.beanClassLoader);
+				if (configClass != enhancedClass) {
+					if (logger.isTraceEnabled()) {
+						logger.trace(String.format("Replacing bean definition '%s' existing class '%s' with " +
+								"enhanced class '%s'", entry.getKey(), configClass.getName(), enhancedClass.getName()));
+					}
+					beanDef.setBeanClass(enhancedClass);
+				}
+			}
+		}
+		catch (Throwable ex) {
+			throw new IllegalStateException("Cannot load configuration class: " + beanDef.getBeanClassName(), ex);
+		}
+	}
+}
+```
+
 # 元数据访问体系
+
 Spring通过**ClassMetadata**, **AnnotatedTypeMetadata**, **AnnotationMetadata**三个接口来封装元数据的访问。 
 
 {% asset_img StandardAnnotationMetadata.png %}
@@ -391,11 +526,55 @@ Spring通过**ClassMetadata**, **AnnotatedTypeMetadata**, **AnnotationMetadata**
 - 其中ClassMetadata提供访问*目标类*自身信息的方法，包括是否接口、是否注解类型、是否抽象类等常用判断、是否存在父类、是否包含其他类等信息
 {% asset_img ClassMetadata.png %}
 
-- AnnotatedTypeMetadata接口提供*目标类*与指定注解名的关系信息（都通过注解名交互）
+- AnnotatedTypeMetadata接口提供*目标类*与指定注解的关系信息（都通过注解名交互）
 {% asset_img AnnotatedTypeMetadata.png %}
 
 - AnnotationMetadata接口提供注解类本身的信息操作
 {% asset_img AnnotationMetadata.png %}
+
+标准实现类 `StandardAnnotationMetadata`，相关操作都委托给`AnnotatedElementUtils`工具类实现。
+
+简单测试一下 AnnotatedElementUtils.isAnnotated()：
+
+```java
+@Retention(RetentionPolicy.RUNTIME)
+@Target(ElementType.TYPE)
+@Component
+@Inherited
+public @interface CustomAnno {
+
+}
+
+@CustomAnno
+public class Location {
+
+}
+
+public class PlayGround extends Location {
+
+}
+
+public class Main {
+
+  private static final Logger logger = LoggerFactory.getLogger(Main.class);
+
+  public static void main(String[] args) {
+    StandardAnnotationMetadata metadata = new StandardAnnotationMetadata(PlayGround.class);
+    logger.info("annotated @Component:{}", metadata.isAnnotated("org.springframework.stereotype.Component"));
+    logger.info("annotated @CompAnno:{}", metadata.isAnnotated("xyz.quxiao.playwith.spring.annotations.metaanno.CustomAnno"));
+  }
+}
+
+结果：
+annotated @Component:true
+annotated @CompAnno:true
+
+如果把@Inherited元注解去掉，则两个都是false
+```
+
+结论：该方法会检查目标类被直接标注和被元注解标注，但不会探查父类。因此结合 AbstractTypeHierarchyTraversingFilter搜索父类的功能，AnnotationTypeFilter能适应多种情况：
+1. 类上直接标注或注解含有指定元注解
+2. 父类上直接标注或注解含有指定元注解
 
 
 [1]: https://dzone.com/articles/what-are-meta-annotations-in-java
