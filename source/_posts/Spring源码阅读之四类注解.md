@@ -5,19 +5,19 @@ categories:
 tags:
 ---
 
-## 前言
+# 前言
 早期Spring IOC对象间的依赖关系完全通过XML表达，很好的实现了依赖翻转，但也导致了成吨的难以维护的XML配置文件。利用Java5引入的注解([Annotation][2])Spring有效的缓解了这个问题，即通过扫描代码中的注解来识别依赖关系，既简洁又直观。~~懒~~ 简单的力量是如此强大，乃至最近几年全注解式的SpringBoot成为了主要的开发方式。
 
-## Spring中的四类注解
+# Spring中的四类注解
 Spring中的注解主要分类4类：
-	1. 用于标识组件的：@Component系列（根据用途的不同派生出: @Controller, @Service, @Repository等）
-	2. 用于Java Config的：@ComponentScan, @Profile, @Import, @ImportResource, @PropertySource @Bean, @Lazy, @Scope, @Primary等
-	3. 用于启动特定类型功能的：@EnableXXX系列 （单独拎出来是因为辨识度太高了，其实主要利用了@Import元注解）
-	4. 用于表示依赖关系的：@Autowired, @Qualifier, @Inject, @Resource(后俩为javax标准注解)
+	1. 用于标识组件的 @Component系列（根据用途的不同派生出: @Controller, @Service, @Repository等）
+	2. 用于Java注解配置的 Annotation Config系列：@ComponentScan, @Profile, @Import, @ImportResource, @PropertySource @Bean, @Lazy, @Scope, @Primary等
+	3. 用于启动特定类型功能的 @EnableXXX系列 （严格来说也属于第二类注解配置，但其代码实现有所区别）
+	4. 用于注入依赖的：@Autowired, @Qualifier, @Inject, @Resource(后俩为javax标准注解)
 
 需要注意的是，注解只是一个能包含少量数据的标记，本身并不能直接改变程序运行流程，必须由相应的处理代码实现。下面分别看看这四类注解的用法及相关处理代码。
 
-### @Component系列
+## @Component系列
 除了基本的@Component，其余的注解都有特定业务含义：
 
 - @Controller用来标注在mvc的控制器上
@@ -26,7 +26,7 @@ Spring中的注解主要分类4类：
 - @ControllerAdvice放置在控制器横截处理器类上
 - @Configuration比较特殊，用来标记配置类
 
-这里用到了Java5的[元注解][1]的能力，即注解上的注解，例如：
+这里用到了Java5的[元注解][1]，即注解上的注解，例如：
 
 ```java
 @Target({ElementType.TYPE})
@@ -44,6 +44,8 @@ public @interface Service {
 @Service上标注了@Component，元注解也是注解，功能也是标记，在Java语法上并不直接代表@Service就是@Component了，它的含义由解析代码也就是Spring赋予。
 
 元注解唯一的语法要求是 @Target必须配置成：ElementType.TYPE或ElementType.ANNOTATION_TYPE。
+
+### 识别并注册BeanDefinition
 
 就@Component系注解的解析来说，容器启动时利用 ClassPathBeanDefinitionScanner 扫描指定package，把标注了该类注解的.class文件作为候选BeanDefinition。
 {%asset_img ClasspathBeanDefinitionScanner.png %}
@@ -67,12 +69,10 @@ public @interface Service {
 
 实际扫描由doScan()完成，并且如果包含注解配置（默认是）就注册相应的处理器，包括：
 
-* ConfigurationClassPostProcessor
-* AutowiredAnnotationBeanPostProcessor
-* CommonAnnotationBeanPostProcessor
-* PersistenceAnnotationBeanPostProcessor(类存在时)
-
-#### doScan() 识别并注册BeanDefinition
+- ConfigurationClassPostProcessor
+- AutowiredAnnotationBeanPostProcessor
+- CommonAnnotationBeanPostProcessor
+- PersistenceAnnotationBeanPostProcessor(类存在时)
 
 ```java
     protected Set<BeanDefinitionHolder> doScan(String... basePackages) {
@@ -111,24 +111,13 @@ public @interface Service {
 ```
 
 两个值得分析的点：
-1. 识别@Component系注解的方式，也就是findCandidateComponents(basePackage)
-2. scoped-proxy的实现
-   
+
+1. 查找指定package中的组件，也就是findCandidateComponents(basePackage)
+2. scoped-proxy功能
+
 下面分别来看看:
 
-#### findCandidateComponents(basePackage)
-
-```java
-	public Set<BeanDefinition> findCandidateComponents(String basePackage) {
-		if (this.componentsIndex != null && indexSupportsIncludeFilters()) {
-			return addCandidateComponentsFromIndex(this.componentsIndex, basePackage);
-		}
-		else {
-			// 重点关注这里
-			return scanCandidateComponents(basePackage);
-		}
-	}
-```
+### 查找指定package中的组件
 
 ```java
 	private Set<BeanDefinition> scanCandidateComponents(String basePackage) {
@@ -190,12 +179,7 @@ public @interface Service {
 		return candidates;
 	}
 
-```
-
-关键在isCandidateComponent()方法：
-
-```java
-	// 
+	// 判断是否组件
 	protected boolean isCandidateComponent(MetadataReader metadataReader) throws IOException {
 		// 先检查黑名单
 		for (TypeFilter tf : this.excludeFilters) {
@@ -215,34 +199,10 @@ public @interface Service {
 
 ```
 
-黑白TypeFilter有哪些呢？在ClassPathBeanDefinitionScanner构造方法中注册了一些默认的。
+ClassPathBeanDefinitionScanner构造方法中通过registerDefaultFilters()默认支持三个注解@Component, @ManagedBean, @Named。
 
-```java
-	@SuppressWarnings("unchecked")
-	protected void registerDefaultFilters() {
-		this.includeFilters.add(new AnnotationTypeFilter(Component.class));
-		ClassLoader cl = ClassPathScanningCandidateComponentProvider.class.getClassLoader();
-		try {
-			this.includeFilters.add(new AnnotationTypeFilter(
-					((Class<? extends Annotation>) ClassUtils.forName("javax.annotation.ManagedBean", cl)), false));
-			logger.trace("JSR-250 'javax.annotation.ManagedBean' found and supported for component scanning");
-		}
-		catch (ClassNotFoundException ex) {
-			// JSR-250 1.1 API (as included in Java EE 6) not available - simply skip.
-		}
-		try {
-			this.includeFilters.add(new AnnotationTypeFilter(
-					((Class<? extends Annotation>) ClassUtils.forName("javax.inject.Named", cl)), false));
-			logger.trace("JSR-330 'javax.inject.Named' annotation found and supported for component scanning");
-		}
-		catch (ClassNotFoundException ex) {
-			// JSR-330 API not available - simply skip.
-		}
-	}
-```
-
-可以看到白名单中注册了 AnnotationTypeFilter类型的: @Component, @ManagedBean, @Named 三个。
 这里再简单看一下TypeFilter体系：
+{% asset_img AnnotationTypeFilter.png AnnotationTypeFilter继承关系 %}
 
 ```java
 @FunctionalInterface
@@ -251,8 +211,8 @@ public interface TypeFilter {
 	/**
 	 * Determine whether this filter matches for the class described by
 	 * the given metadata.
-	 * @param metadataReader the metadata reader for the target class
-	 * @param metadataReaderFactory a factory for obtaining metadata readers
+	 * @param metadataReader the metadata reader for the target class 目标类的元数据读取器
+	 * @param metadataReaderFactory a factory for obtaining metadata readers 元数据读取器工厂
 	 * for other classes (such as superclasses and interfaces)
 	 * @return whether this filter matches
 	 * @throws IOException in case of I/O failure when reading metadata
@@ -263,9 +223,7 @@ public interface TypeFilter {
 }
 ```
 
-{% asset_img AnnotationTypeFilter.png AnnotationTypeFilter继承关系 %}
-
-匹配逻辑封装在父类AbstractTypeHierarchyTraversingFilter.match()中，该方法提供了对父类及接口进行匹配的能力。
+AbstractTypeHierarchyTraversingFilter提供了向上遍历并匹配的能力
 
 ```java
 	@Override
@@ -343,7 +301,7 @@ public interface TypeFilter {
 
 ```
 
-AnnotationTypeFilter继承了AbstractTypeHierarchyTraversingFilter，用途是匹配指定类是否存在某注解。
+AnnotationTypeFilter继承了AbstractTypeHierarchyTraversingFilter，实现匹配注解的功能。
 
 ```java
 	protected AbstractTypeHierarchyTraversingFilter(boolean considerInherited, boolean considerInterfaces) {
@@ -352,13 +310,14 @@ AnnotationTypeFilter继承了AbstractTypeHierarchyTraversingFilter，用途是�
 	}
 
 	public AnnotationTypeFilter(Class<? extends Annotation> annotationType) {
+		// 默认不匹配接口
 		this(annotationType, true, false);
 	}
 
 	// 根据要检查的注解是否有标注@Inherited来决定是否探查父类，因为不能继承的话就没必要检查父类了。
 	public AnnotationTypeFilter(
 			Class<? extends Annotation> annotationType, boolean considerMetaAnnotations, boolean considerInterfaces) {
-
+		// 如果注解包含@Inherited元注解，则匹配父类
 		super(annotationType.isAnnotationPresent(Inherited.class), considerInterfaces);
 		this.annotationType = annotationType;
 		this.considerMetaAnnotations = considerMetaAnnotations;
@@ -366,8 +325,8 @@ AnnotationTypeFilter继承了AbstractTypeHierarchyTraversingFilter，用途是�
 
 ```
 
-#### 关于@Inherited
-**@Inherited**是一个元注解，用来标识注解具备被子类继承的功能，例如:
+**@Inherited元注解**
+用来启用注解能被子类继承的功能，例如:
 
 ```java
 @Target(ElementType.TYPE)
@@ -397,7 +356,7 @@ public class Main {
 }
 ```
 
-通过class.getAnnotations()就能获取到继承的注解；这与解析@Service的情况不同，@Component是元注解而不是@Service的"父类"，这里没有继承关系，所以探查@Component还得另外实现。
+通过class.getAnnotations()就能获取到继承的注解；但这与解析@Service的情况不同，@Component是元注解而不是@Service的"父类"，这里没有继承关系，所以探查@Component还得另外实现。
 
 AnnotationTypeFilter继承了AbstractTypeHierarchyTraversingFilter，实现了matchSelf()，利用metadataReader判断是否包含指定注解。
 
@@ -412,7 +371,19 @@ AnnotationTypeFilter继承了AbstractTypeHierarchyTraversingFilter，实现了ma
 	}
 ```
 
-## 元数据访问体系
+对注解的匹配委托给MetadataReader完成（可以参考第三部分元数据访问体系），它可以匹配目标类上是否有注解或元注解，再加上已有的匹配父类的能力，所以@Component系可以标记在父类上，子类支持组件自动扫描。
+
+### scoped-proxy
+扫描出候选BeanDefinition后，Spring通过`AnnotationConfigUtils.applyScopedProxyMode(scopeMetadata, definitionHolder, this.registry);`应用了scoped-proxy，即为指定对象创建一个Proxy，调用Proxy时转发到真实对象上。这个功能主要用在多个不同scope的对象协作的场景，例如某单例对象依赖原型对象，由于单例对象只创建一次，当单例对象创建后，其依赖的原型对象被创建一次后就不再改变，与原型对象的定义不符。通过设置原型对象的scoped-proxy，让单例依赖这个Proxy就可以解决问题。
+
+**配置**
+
+- 注解式，在类上标@Scope(proxyMode = XXX)
+- XML
+
+## Annotation Config系列
+
+# 元数据访问体系
 Spring通过**ClassMetadata**, **AnnotatedTypeMetadata**, **AnnotationMetadata**三个接口来封装元数据的访问。 
 
 {% asset_img StandardAnnotationMetadata.png %}
