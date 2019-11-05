@@ -385,7 +385,7 @@ AnnotationTypeFilter继承了AbstractTypeHierarchyTraversingFilter，实现了ma
 
 **实现**
 
-通过把原bean改名为 scopedTarget.beanName，用一个ScopedProxyFactoryBean替换了原beanDefinition，ScopedProxyFactoryBean利用了Spring内置的ProxyCreator体系和FactoryBean功能。
+通过把原bean改名为 scopedTarget.$beanName，并用一个ScopedProxyFactoryBean替换了原beanDefinition的targetClass。ScopedProxyFactoryBean利用了Spring内置的ProxyCreator体系和FactoryBean功能创建bean。
 
 ```java
 public static BeanDefinitionHolder createScopedProxy(BeanDefinitionHolder definition,
@@ -457,14 +457,128 @@ public void postProcessBeanFactory(ConfigurableListableBeanFactory beanFactory) 
 	}
 	this.factoriesPostProcessed.add(factoryId);
 	if (!this.registriesPostProcessed.contains(factoryId)) {
-		// BeanDefinitionRegistryPostProcessor hook apparently not supported...
-		// Simply call processConfigurationClasses lazily at this point then.
+		// 通常作为 BeanDefinitionRegstryPostProcessor 已经调用过processConfigBeanDefinitions()方法了，如果没有就在这里调一次，解析以BeanDefinition.
 		processConfigBeanDefinitions((BeanDefinitionRegistry) beanFactory);
 	}
 	
+	// 增强配置类
 	enhanceConfigurationClasses(beanFactory);
+	// 添加感知@Import的BeanPostProcessor
 	beanFactory.addBeanPostProcessor(new ImportAwareBeanPostProcessor(beanFactory));
 }
+	// 从BeanDefinitionRegistry中查找配置类：包括@Configuration, 含@Bean标注的方法, @Component, @ComponentScan, @Import, @ImportResource注解的类，从中找到BeanDefinition
+	public void processConfigBeanDefinitions(BeanDefinitionRegistry registry) {
+		List<BeanDefinitionHolder> configCandidates = new ArrayList<>();
+		String[] candidateNames = registry.getBeanDefinitionNames();
+
+		for (String beanName : candidateNames) {
+			BeanDefinition beanDef = registry.getBeanDefinition(beanName);
+			// 解析过的BeanDefinition会有标记
+			if (ConfigurationClassUtils.isFullConfigurationClass(beanDef) ||
+					ConfigurationClassUtils.isLiteConfigurationClass(beanDef)) {
+				if (logger.isDebugEnabled()) {
+					logger.debug("Bean definition has already been processed as a configuration class: " + beanDef);
+				}
+			}
+			// 如果没有解析过，就在这里尝试解析，符合候选的返回true
+			else if (ConfigurationClassUtils.checkConfigurationClassCandidate(beanDef, this.metadataReaderFactory)) {
+				configCandidates.add(new BeanDefinitionHolder(beanDef, beanName));
+			}
+		}
+
+		// Return immediately if no @Configuration classes were found
+		if (configCandidates.isEmpty()) {
+			return;
+		}
+
+		// Sort by previously determined @Order value, if applicable
+		configCandidates.sort((bd1, bd2) -> {
+			int i1 = ConfigurationClassUtils.getOrder(bd1.getBeanDefinition());
+			int i2 = ConfigurationClassUtils.getOrder(bd2.getBeanDefinition());
+			return Integer.compare(i1, i2);
+		});
+
+		// Detect any custom bean name generation strategy supplied through the enclosing application context
+		SingletonBeanRegistry sbr = null;
+		if (registry instanceof SingletonBeanRegistry) {
+			sbr = (SingletonBeanRegistry) registry;
+			if (!this.localBeanNameGeneratorSet) {
+				BeanNameGenerator generator = (BeanNameGenerator) sbr.getSingleton(CONFIGURATION_BEAN_NAME_GENERATOR);
+				if (generator != null) {
+					this.componentScanBeanNameGenerator = generator;
+					this.importBeanNameGenerator = generator;
+				}
+			}
+		}
+
+		if (this.environment == null) {
+			this.environment = new StandardEnvironment();
+		}
+
+		// Parse each @Configuration class
+		ConfigurationClassParser parser = new ConfigurationClassParser(
+				this.metadataReaderFactory, this.problemReporter, this.environment,
+				this.resourceLoader, this.componentScanBeanNameGenerator, registry);
+
+		// 初始候选
+		Set<BeanDefinitionHolder> candidates = new LinkedHashSet<>(configCandidates);
+		Set<ConfigurationClass> alreadyParsed = new HashSet<>(configCandidates.size());
+		// 递归解析直到没有新的候选
+		do {
+			parser.parse(candidates);
+			parser.validate();
+
+			Set<ConfigurationClass> configClasses = new LinkedHashSet<>(parser.getConfigurationClasses());
+			configClasses.removeAll(alreadyParsed);
+
+			// Read the model and create bean definitions based on its content
+			if (this.reader == null) {
+				this.reader = new ConfigurationClassBeanDefinitionReader(
+						registry, this.sourceExtractor, this.resourceLoader, this.environment,
+						this.importBeanNameGenerator, parser.getImportRegistry());
+			}
+			this.reader.loadBeanDefinitions(configClasses);
+			alreadyParsed.addAll(configClasses);
+
+			candidates.clear();
+			// 如果通过解析增加了新的BeanDefinition
+			if (registry.getBeanDefinitionCount() > candidateNames.length) {
+				String[] newCandidateNames = registry.getBeanDefinitionNames();
+				Set<String> oldCandidateNames = new HashSet<>(Arrays.asList(candidateNames));
+				Set<String> alreadyParsedClasses = new HashSet<>();
+				for (ConfigurationClass configurationClass : alreadyParsed) {
+					alreadyParsedClasses.add(configurationClass.getMetadata().getClassName());
+				}
+				// 这里是beanName
+				for (String candidateName : newCandidateNames) {
+					// 找出之前没有解析过的beanName
+					if (!oldCandidateNames.contains(candidateName)) {
+						BeanDefinition bd = registry.getBeanDefinition(candidateName);
+						// 检查是否是配置类，且没有解析过对应的类
+						if (ConfigurationClassUtils.checkConfigurationClassCandidate(bd, this.metadataReaderFactory) &&
+								!alreadyParsedClasses.contains(bd.getBeanClassName())) {
+							candidates.add(new BeanDefinitionHolder(bd, candidateName));
+						}
+					}
+				}
+				// 下一轮解析前把已有的beanName赋值给candidateNames
+				candidateNames = newCandidateNames;
+			}
+		}
+		while (!candidates.isEmpty());
+
+		// Register the ImportRegistry as a bean in order to support ImportAware @Configuration classes
+		if (sbr != null && !sbr.containsSingleton(IMPORT_REGISTRY_BEAN_NAME)) {
+			sbr.registerSingleton(IMPORT_REGISTRY_BEAN_NAME, parser.getImportRegistry());
+		}
+
+		if (this.metadataReaderFactory instanceof CachingMetadataReaderFactory) {
+			// Clear cache in externally provided MetadataReaderFactory; this is a no-op
+			// for a shared cache since it'll be cleared by the ApplicationContext.
+			((CachingMetadataReaderFactory) this.metadataReaderFactory).clearCache();
+		}
+	}
+
 
 // 处理容器中的配置类
 public void enhanceConfigurationClasses(ConfigurableListableBeanFactory beanFactory) {
