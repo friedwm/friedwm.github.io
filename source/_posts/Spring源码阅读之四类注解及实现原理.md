@@ -686,9 +686,9 @@ annotated @CompAnno:true
 如果把@Inherited元注解去掉，则两个都是false
 ```
 
-结论：该方法会检查目标类被直接标注和被元注解标注，但不会探查父类。因此结合 AbstractTypeHierarchyTraversingFilter搜索父类的功能，AnnotationTypeFilter能适应多种情况：
-1. 类上直接标注或注解含有指定元注解
-2. 父类上直接标注或注解含有指定元注解
+结论：isAnnotated()方法会检查目标类是否被直接标注或被元注解标注，但不会探查父类。因此结合 AbstractTypeHierarchyTraversingFilter搜索父类的功能，AnnotationTypeFilter能适应多种情况：
+1. 类上直接标注或含有指定元注解
+2. 父类上直接标注或含有指定元注解
 
 
 [1]: https://dzone.com/articles/what-are-meta-annotations-in-java
