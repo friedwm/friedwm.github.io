@@ -690,6 +690,5 @@ annotated @CompAnno:true
 1. 类上直接标注或含有指定元注解
 2. 父类上直接标注或含有指定元注解
 
-
 [1]: https://dzone.com/articles/what-are-meta-annotations-in-java
 [2]: https://docs.oracle.com/javase/specs/jls/se11/html/jls-9.html#jls-9.6
